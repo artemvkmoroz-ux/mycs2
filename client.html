@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>CS:GO Matchmaking</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0a; color: #fff;
+    font-family: 'Stratum2','Arial Narrow',Arial,sans-serif; }
+
+  .header {
+    height: 60px; background: linear-gradient(180deg,#000,#111);
+    display: flex; align-items: center; padding: 0 24px;
+    border-bottom: 1px solid #222;
+  }
+  .logo { font-size: 20px; font-weight: bold; letter-spacing: 3px; color: #ff8a00; }
+  .status { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px; color: #888; }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: #e53935; }
+  .status .dot.on { background: #4caf50; box-shadow: 0 0 8px #4caf50; }
+
+  .container { display: grid; grid-template-columns: 420px 1fr; height: calc(100vh - 60px); }
+
+  .panel { padding: 30px; overflow-y: auto; background: #0e0e0e; border-right: 1px solid #1a1a1a; }
+
+  .section-title { font-size: 11px; letter-spacing: 3px; color: #666; margin: 20px 0 8px; }
+  .section-title:first-child { margin-top: 0; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .btn {
+    background: #161616; border: 1px solid #262626; color: #aaa;
+    padding: 12px; cursor: pointer; font-family: inherit; font-size: 11px;
+    font-weight: bold; letter-spacing: 1px; transition: 0.15s;
+    display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  }
+  .btn:hover { background: #1e1e1e; color: #fff; }
+  .btn.active {
+    background: rgba(255,138,0,0.15); border-color: #ff8a00; color: #fff;
+    box-shadow: 0 0 12px rgba(255,138,0,0.25);
+  }
+  .btn .ping { font-size: 10px; font-weight: normal; }
+  .ping.good { color: #4caf50; } .ping.mid { color: #ffb347; } .ping.bad { color: #e53935; }
+
+  .search-btn {
+    width: 100%; margin-top: 30px;
+    background: linear-gradient(180deg,#ff9a20,#e67300);
+    border: none; color: #fff; font-size: 16px; font-weight: bold; letter-spacing: 3px;
+    padding: 18px; cursor: pointer; font-family: inherit;
+    clip-path: polygon(12px 0,100% 0,calc(100% - 12px) 100%,0 100%);
+    transition: 0.2s;
+  }
+  .search-btn:hover { filter: brightness(1.15); }
+  .search-btn.searching { background: linear-gradient(180deg,#e53935,#b71c1c); }
+  .search-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .queue-info { margin-top: 14px; font-size: 12px; color: #888; text-align: center; letter-spacing: 1px; }
+  .queue-info b { color: #ff8a00; font-size: 16px; }
+
+  /* Оверлей найденного матча */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.92);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; opacity: 0; pointer-events: none; transition: 0.3s;
+  }
+  .overlay.show { opacity: 1; pointer-events: auto; }
+
+  .match-card {
+    width: 720px; background: #141414; border: 2px solid #ff8a00;
+    box-shadow: 0 0 60px rgba(255,138,0,0.4);
+    padding: 32px 40px; position: relative;
+  }
+  .match-title { font-size: 26px; font-weight: bold; letter-spacing: 4px; color: #ff8a00; margin-bottom: 6px; }
+  .match-sub { font-size: 12px; color: #888; letter-spacing: 2px; margin-bottom: 24px; }
+
+  .players-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+  .player-row {
+    display: flex; align-items: center; gap: 14px; padding: 12px 16px;
+    background: #1a1a1a; border-left: 3px solid #333;
+  }
+  .player-row.accepted { border-left-color: #4caf50; }
+  .player-row.pending { border-left-color: #ffb347; }
+  .player-row .av {
+    width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg,#4a90d9,#1e3a5f);
+    display: flex; align-items: center; justify-content: center; font-weight: bold;
+  }
+  .player-row .nick { font-weight: bold; letter-spacing: 1px; }
+  .player-row .rank { font-size: 11px; color: #ffb347; }
+  .player-row .pinfo { flex: 1; }
+  .player-row .right { font-size: 11px; color: #888; letter-spacing: 1px; }
+  .player-row .status-ok { color: #4caf50; }
+
+  .match-actions { display: flex; gap: 12px; }
+  .match-actions button {
+    flex: 1; padding: 14px; font-family: inherit; font-size: 14px; font-weight: bold;
+    letter-spacing: 2px; cursor: pointer; border: none;
+  }
+  .accept { background: #4caf50; color: #fff; }
+  .accept:hover { background: #66bb6a; }
+  .accept:disabled { background: #333; color: #666; cursor: not-allowed; }
+  .decline { background: #2a2a2a; color: #aaa; }
+  .decline:hover { background: #3a3a3a; color: #fff; }
+
+  .countdown-bar {
+    height: 4px; background: #333; margin-top: 16px; overflow: hidden;
+  }
+  .countdown-fill { height: 100%; background: #ff8a00; transition: width 1s linear; }
+
+  .bg-view { position: relative; background: radial-gradient(ellipse at center, #1a1f2e 0%, #050505 100%);
+    display: flex; align-items: center; justify-content: center; color: #333; font-size: 14px; letter-spacing: 3px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">CS:GO MATCHMAKING</div>
+  <div class="status">
+    <span class="dot" id="connDot"></span>
+    <span id="connText">Подключение...</span>
+  </div>
+</div>
+
+<div class="container">
+  <div class="panel">
+    <div class="section-title">РЕЖИМ</div>
+    <div class="grid2" id="modes">
+      <button class="btn active" data-mode="competitive">🎯 Competitive</button>
+      <button class="btn" data-mode="wingman">⚡ Wingman</button>
+      <button class="btn" data-mode="deathmatch">💀 Deathmatch</button>
+      <button class="btn" data-mode="armsrace">🎲 Arms Race</button>
+    </div>
+
+    <div class="section-title">КАРТЫ</div>
+    <div class="grid2" id="maps">
+      <button class="btn active" data-map="de_dust2">de_dust2</button>
+      <button class="btn active" data-map="de_mirage">de_mirage</button>
+      <button class="btn" data-map="de_inferno">de_inferno</button>
+      <button class="btn" data-map="de_nuke">de_nuke</button>
+      <button class="btn" data-map="de_overpass">de_overpass</button>
+      <button class="btn" data-map="de_train">de_train</button>
+    </div>
+
+    <div class="section-title">РЕГИОН</div>
+    <div class="grid2" id="regions">
+      <button class="btn active" data-region="eu">EU <span class="ping good" data-region-ping="eu">—</span></button>
+      <button class="btn" data-region="ru">RU <span class="ping good" data-region-ping="ru">—</span></button>
+      <button class="btn" data-region="us">US <span class="ping bad" data-region-ping="us">—</span></button>
+      <button class="btn" data-region="asia">ASIA <span class="ping bad" data-region-ping="asia">—</span></button>
+    </div>
+
+    <button class="search-btn" id="searchBtn">НАЧАТЬ ПОИСК</button>
+    <div class="queue-info" id="queueInfo"></div>
+  </div>
+
+  <div class="bg-view">
+    ОЖИДАНИЕ МАТЧА
+  </div>
+</div>
+
+<!-- Оверлей найденного матча -->
+<div class="overlay" id="matchOverlay">
+  <div class="match-card">
+    <div class="match-title">МАТЧ НАЙДЕН</div>
+    <div class="match-sub" id="matchSub">DE_DUST2 · COMPETITIVE · EU</div>
+
+    <div class="players-list" id="playersList"></div>
+
+    <div class="match-actions">
+      <button class="accept" id="acceptBtn">ПРИНЯТЬ</button>
+      <button class="decline" id="declineBtn">ОТКЛОНИТЬ</button>
+    </div>
+    <div class="countdown-bar"><div class="countdown-fill" id="countdownFill" style="width:100%"></div></div>
+  </div>
+</div>
+
+<script>
+// ============ НАСТРОЙКИ ============
+const SERVER_URL = 'ws://localhost:8080'; // ← адрес твоего сервера
+
+const state = {
+  mode: 'competitive',
+  maps: new Set(['de_dust2', 'de_mirage']),
+  region: 'eu',
+  nick: 'Player_' + Math.floor(Math.random()*9999),
+  rank: 'Gold Nova',
+  inQueue: false,
+  inLobby: false,
+  ws: null,
+  countdown: null
+};
+
+// ============ ПОДКЛЮЧЕНИЕ К СЕРВЕРУ ============
+const connDot = document.getElementById('connDot');
+const connText = document.getElementById('connText');
+
+function connect() {
+  const ws = new WebSocket(SERVER_URL);
+  state.ws = ws;
+
+  ws.onopen = () => {
+    connDot.classList.add('on');
+    connText.textContent = 'Подключено';
+    ws.send(JSON.stringify({ type: 'hello', nick: state.nick, rank: state.rank }));
+    measurePings();
+  };
+
+  ws.onclose = () => {
+    connDot.classList.remove('on');
+    connText.textContent = 'Нет соединения';
+    state.inQueue = false;
+    updateSearchBtn();
+    setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => connText.textContent = 'Ошибка';
+
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    handleMessage(msg);
+  };
+}
+
+// ============ РЕАЛЬНЫЙ ЗАМЕР ПИНГА ============
+async function measurePings() {
+  const endpoints = {
+    eu:   'https://www.google.de/generate_204',
+    ru:   'https://yandex.ru/favicon.ico',
+    us:   'https://www.google.com/generate_204',
+    asia: 'https://www.google.co.jp/generate_204'
+  };
+
+  for (const [region, url] of Object.entries(endpoints)) {
+    const el = document.querySelector(`[data-region-ping="${region}"]`);
+    if (!el) continue;
+    try {
+      const start = performance.now();
+      await fetch(url + (url.includes('?') ? '&' : '?') + '_=' + Math.random(), { mode: 'no-cors', cache: 'no-store' });
+      const ping = Math.round(performance.now() - start);
+      el.textContent = ping + 'ms';
+      el.className = 'ping ' + (ping < 60 ? 'good' : ping < 150 ? 'mid' : 'bad');
+      if (region === state.region && state.ws?.readyState === 1) {
+        state.ws.send(JSON.stringify({ type: 'ping', value: ping }));
+      }
+    } catch {
+      el.textContent = '—';
+    }
+  }
+}
+
+// ============ ОБРАБОТКА СООБЩЕНИЙ СЕРВЕРА ============
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'in_queue':
+      state.inQueue = true;
+      updateSearchBtn();
+      document.getElementById('queueInfo').innerHTML = `В очереди: <b>${msg.position}</b>`;
+      break;
+
+    case 'queue_size':
+      if (state.inQueue) {
+        document.getElementById('queueInfo').innerHTML = `Игроков в поиске: <b>${msg.size}</b>`;
+      }
+      break;
+
+    case 'match_found':
+      state.inLobby = true;
+      showMatchOverlay(msg);
+      break;
+
+    case 'player_accepted':
+      updateAcceptedUI(msg.count, msg.total);
+      break;
+
+    case 'match_cancelled':
+      hideMatchOverlay();
+      state.inLobby = false;
+      document.getElementById('queueInfo').innerHTML = 'Матч отменён: ' + msg.reason;
+      updateSearchBtn();
+      break;
+
+    case 'match_start':
+      document.getElementById('matchSub').textContent = 'ЗАГРУЗКА...';
+      setTimeout(() => {
+        alert('Матч запущен!\nКарта: ' + msg.map + '\nИгроки: ' + msg.players.map(p => p.nick).join(', '));
+        // здесь можно редиректить на страницу игры:
+        // location.href = `/game.html?map=${msg.map}&lobby=${msg.lobbyId}`;
+      }, 800);
+      break;
+  }
+}
+
+// ============ UI ПОИСКА ============
+const searchBtn = document.getElementById('searchBtn');
+
+function updateSearchBtn() {
+  if (state.inQueue) {
+    searchBtn.textContent = 'ОТМЕНИТЬ ПОИСК';
+    searchBtn.classList.add('searching');
+  } else {
+    searchBtn.textContent = 'НАЧАТЬ ПОИСК';
+    searchBtn.classList.remove('searching');
+  }
+}
+
+searchBtn.onclick = () => {
+  if (!state.ws || state.ws.readyState !== 1) return;
+  if (state.inQueue) {
+    state.ws.send(JSON.stringify({ type: 'leave_queue' }));
+    state.inQueue = false;
+    document.getElementById('queueInfo').textContent = '';
+    updateSearchBtn();
+  } else {
+    if (state.maps.size === 0) { alert('Выбери хотя бы одну карту'); return; }
+    state.ws.send(JSON.stringify({
+      type: 'join_queue',
+      mode: state.mode,
+      region: state.region,
+      maps: [...state.maps]
+    }));
+  }
+};
+
+// ============ ВЫБОР РЕЖИМА / КАРТ / РЕГИОНА ============
+document.querySelectorAll('#modes .btn').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('#modes .btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    state.mode = b.dataset.mode;
+  };
+});
+
+document.querySelectorAll('#maps .btn').forEach(b => {
+  b.onclick = () => {
+    const map = b.dataset.map;
+    if (state.maps.has(map)) { state.maps.delete(map); b.classList.remove('active'); }
+    else { state.maps.add(map); b.classList.add('active'); }
+  };
+});
+
+document.querySelectorAll('#regions .btn').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('#regions .btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    state.region = b.dataset.region;
+    if (state.ws?.readyState === 1) {
+      const pingEl = document.querySelector(`[data-region-ping="${state.region}"]`);
+      const pingVal = parseInt(pingEl.textContent) || 0;
+      state.ws.send(JSON.stringify({ type: 'ping', value: pingVal }));
+    }
+  };
+});
+
+// ============ ОВЕРЛЕЙ МАТЧА ============
+const overlay = document.getElementById('matchOverlay');
+let countdownLeft = 10;
+
+function showMatchOverlay(data) {
+  document.getElementById('matchSub').textContent =
+    data.map.toUpperCase() + ' · ' + data.mode.toUpperCase() + ' · ' + data.region.toUpperCase();
+
+  const list = document.getElementById('playersList');
+  list.innerHTML = '';
+  data.players.forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'player-row pending';
+    row.innerHTML = `
+      <div class="av">${p.nick[0].toUpperCase()}</div>
+      <div class="pinfo">
+        <div class="nick">${p.nick}</div>
+        <div class="rank">${p.rank || 'Unranked'}</div>
+      </div>
+      <div class="right">${p.ping != null ? p.ping + 'ms' : '—'} · <span class="status-ok">ОЖИДАНИЕ</span></div>
+    `;
+    list.appendChild(row);
+  });
+
+  overlay.classList.add('show');
+  document.getElementById('acceptBtn').disabled = false;
+
+  countdownLeft = 10;
+  const fill = document.getElementById('countdownFill');
+  fill.style.width = '100%';
+  state.countdown = setInterval(() => {
+    countdownLeft--;
+    fill.style.width = (countdownLeft / 10 * 100) + '%';
+    if (countdownLeft <= 0) {
+      clearInterval(state.countdown);
+      state.ws.send(JSON.stringify({ type: 'decline_match' }));
+    }
+  }, 1000);
+}
+
+function updateAcceptedUI(count, total) {
+  const rows = document.querySelectorAll('#playersList .player-row');
+  // отмечаем тех, кто принял (упрощённо — по порядку)
+  for (let i = 0; i < count; i++) {
+    rows[i]?.classList.remove('pending');
+    rows[i]?.classList.add('accepted');
+    const st = rows[i]?.querySelector('.status-ok');
+    if (st) st.textContent = 'ПРИНЯЛ';
+  }
+}
+
+function hideMatchOverlay() {
+  overlay.classList.remove('show');
+  clearInterval(state.countdown);
+}
+
+document.getElementById('acceptBtn').onclick = () => {
+  document.getElementById('acceptBtn').disabled = true;
+  state.ws.send(JSON.stringify({ type: 'accept_match' }));
+  // отметим себя как принявшего (первого в списке)
+  const me = document.querySelector('#playersList .player-row');
+  me?.classList.remove('pending');
+  me?.classList.add('accepted');
+  const st = me?.querySelector('.status-ok');
+  if (st) st.textContent = 'ПРИНЯЛ';
+};
+
+document.getElementById('declineBtn').onclick = () => {
+  state.ws.send(JSON.stringify({ type: 'decline_match' }));
+  hideMatchOverlay();
+};
+
+// ============ СТАРТ ============
+connect();
+</script>
+</body>
+</html>
